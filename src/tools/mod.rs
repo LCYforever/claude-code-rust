@@ -6,6 +6,8 @@ pub mod file_write;
 pub mod execute_command;
 pub mod search;
 pub mod list_files;
+pub mod delegate_agent;
+pub mod list_agents;
 
 pub use file_read::FileReadTool;
 pub use file_edit::FileEditTool;
@@ -13,6 +15,8 @@ pub use file_write::FileWriteTool;
 pub use execute_command::ExecuteCommandTool;
 pub use search::SearchTool;
 pub use list_files::ListFilesTool;
+pub use delegate_agent::DelegateToAgentTool;
+pub use list_agents::ListAvailableAgentsTool;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

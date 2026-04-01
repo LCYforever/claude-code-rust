@@ -99,6 +99,8 @@ axum = { version = "0.7", optional = true }
 tower = { version = "0.4", optional = true }
 tower-http = { version = "0.5", optional = true, features = ["fs", "cors"] }
 askama = { version = "0.12", optional = true }
+tokio-stream = { version = "0.1", optional = true }
+async-stream = { version = "0.3", optional = true }
 
 # Internationalization (i18n)
 fluent = { version = "0.16", optional = true }
@@ -116,7 +118,7 @@ default = ["gui-egui", "i18n"]
 wasm = ["wasm-bindgen", "wasm-bindgen-futures", "js-sys", "web-sys"]
 gui-egui = ["eframe", "egui", "egui_extras"]
 # gui-iced = ["iced"]
-web = ["axum", "tower", "tower-http", "askama"]
+web = ["axum", "tower", "tower-http", "askama", "tokio-stream", "async-stream"]
 i18n = ["fluent", "fluent-bundle", "unic-langid", "rust-embed"]
 full = ["wasm", "gui-egui", "web", "i18n"]
 

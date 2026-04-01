@@ -1,4 +1,4 @@
-//! Web Server - Axum server for the plugin marketplace
+//! Web Server - Axum server for the plugin marketplace and Agent API
 
 use axum::serve;
 use std::net::SocketAddr;
@@ -8,13 +8,15 @@ use tracing::{info, error};
 
 use super::{
     handlers::AppState,
-    routes::create_router,
+    routes::{create_router, create_router_with_agent},
+    agent::AgentWebState,
 };
 
-/// Web server for the plugin marketplace
+/// Web server for the plugin marketplace and Agent API
 pub struct WebServer {
     addr: SocketAddr,
     state: Arc<AppState>,
+    agent_state: Option<AgentWebState>,
 }
 
 impl WebServer {
@@ -23,14 +25,20 @@ impl WebServer {
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
         let state = Arc::new(AppState::new());
 
-        Self { addr, state }
+        Self { addr, state, agent_state: None }
     }
 
     /// Create a new web server with custom address
     pub fn with_addr(addr: SocketAddr) -> Self {
         let state = Arc::new(AppState::new());
 
-        Self { addr, state }
+        Self { addr, state, agent_state: None }
+    }
+
+    /// Inject Agent API state
+    pub fn with_agent_state(mut self, agent_state: AgentWebState) -> Self {
+        self.agent_state = Some(agent_state);
+        self
     }
 
     /// Get the server address
@@ -40,7 +48,11 @@ impl WebServer {
 
     /// Run the web server
     pub async fn run(self) -> anyhow::Result<()> {
-        let app = create_router(self.state);
+        let app = if let Some(agent_state) = self.agent_state {
+            create_router_with_agent(self.state, agent_state)
+        } else {
+            create_router(self.state)
+        };
 
         info!("Starting web server on http://{}", self.addr);
 
@@ -54,7 +66,11 @@ impl WebServer {
 
     /// Run the web server with graceful shutdown
     pub async fn run_with_shutdown(self, shutdown_signal: tokio::sync::oneshot::Receiver<()>) -> anyhow::Result<()> {
-        let app = create_router(self.state);
+        let app = if let Some(agent_state) = self.agent_state {
+            create_router_with_agent(self.state, agent_state)
+        } else {
+            create_router(self.state)
+        };
 
         info!("Starting web server on http://{}", self.addr);
 

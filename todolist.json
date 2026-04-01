@@ -1,0 +1,62 @@
+{
+  "project": "Agent Web 智能助手",
+  "created_at": "2026-04-01T23:37:00",
+  "tasks": [
+    {
+      "id": "refactor-agents-service",
+      "title": "改造 AgentsService",
+      "description": "确认 AgentsService 完整接口后改造 agents.rs：新增 Orchestrator 变体和 agent_id 字段、HashMap key 改 String、新增 builtin-orchestrator 内置 Agent、新增 CRUD 和 list_non_orchestrator_agents 方法",
+      "status": "completed",
+      "dependencies": []
+    },
+    {
+      "id": "impl-orchestrator-tools",
+      "title": "实现 Orchestrator 工具",
+      "description": "在 src/tools/ 新增 delegate_agent.rs 和 list_agents.rs，实现 Tool trait 的 DelegateToAgentTool 和 ListAvailableAgentsTool，修改 mod.rs 注册",
+      "status": "completed",
+      "dependencies": ["refactor-agents-service"]
+    },
+    {
+      "id": "setup-backend-api",
+      "title": "搭建后端 API 子模块",
+      "description": "更新 Cargo.toml 添加 tokio-stream，创建 src/web/agent/ 全部子模块，定义 MessageBlock、AgentEvent、AgentWebState、ChatRequest、NativeCallbackRequest 等数据结构",
+      "status": "completed",
+      "dependencies": ["impl-orchestrator-tools"]
+    },
+    {
+      "id": "impl-backend-handlers",
+      "title": "实现后端处理器和路由",
+      "description": "实现 handlers.rs 全部端点、orchestrator.rs 动态 prompt 构建、sse.rs 流解析、ws.rs 骨架，修改 routes.rs 和 server.rs 挂载",
+      "status": "completed",
+      "dependencies": ["setup-backend-api"]
+    },
+    {
+      "id": "setup-frontend",
+      "title": "初始化前端项目",
+      "description": "初始化 web-frontend React+TS+Vite+Tailwind 项目，创建 types/index.ts 和 api/client.ts、api/sse.ts",
+      "status": "completed",
+      "dependencies": []
+    },
+    {
+      "id": "impl-chat-ui",
+      "title": "实现聊天 UI 组件",
+      "description": "实现 App.tsx 三栏布局、ChatPanel、MessageBubble、BlockRenderer、全部 blocks 子组件、ChatInput、StreamingIndicator、QuickActionBar、useChat Hook",
+      "status": "completed",
+      "dependencies": ["setup-frontend"]
+    },
+    {
+      "id": "impl-agent-session-ui",
+      "title": "实现 Agent 和会话管理 UI",
+      "description": "实现 SessionSidebar、useSessions、AgentSelector、AgentManager、useAgents Hook、useWebSocket 骨架 Hook",
+      "status": "completed",
+      "dependencies": ["impl-chat-ui"]
+    },
+    {
+      "id": "integration-test",
+      "title": "前后端联调测试",
+      "description": "验证 Orchestrator 自动调度、多类型消息 SSE 流、Agent CRUD、会话管理、native-callback 端点等",
+      "status": "completed",
+      "dependencies": ["impl-backend-handlers", "impl-agent-session-ui"]
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 //! Agents Service - Built-in agent system
 //!
 //! Built-in agents for various tasks including:
+//! - builtin-orchestrator: Orchestrator agent for automatic routing
 //! - claudeCodeGuideAgent: Claude Code guidance
 //! - exploreAgent: Codebase exploration
 //! - generalPurposeAgent: General purpose tasks
@@ -18,6 +19,7 @@ use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum AgentType {
+    Orchestrator,
     ClaudeCodeGuide,
     Explore,
     GeneralPurpose,
@@ -29,6 +31,7 @@ pub enum AgentType {
 impl std::fmt::Display for AgentType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            AgentType::Orchestrator => write!(f, "orchestrator"),
             AgentType::ClaudeCodeGuide => write!(f, "claude-code-guide"),
             AgentType::Explore => write!(f, "explore"),
             AgentType::GeneralPurpose => write!(f, "general-purpose"),
@@ -41,6 +44,8 @@ impl std::fmt::Display for AgentType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentDefinition {
+    #[serde(default)]
+    pub agent_id: String,
     pub agent_type: AgentType,
     pub name: String,
     pub description: String,
@@ -50,12 +55,15 @@ pub struct AgentDefinition {
     pub system_prompt: String,
     pub source: String,
     pub base_dir: String,
+    #[serde(default)]
+    pub is_orchestrator: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentSession {
     pub id: String,
     pub agent_type: AgentType,
+    pub agent_id: String,
     pub status: AgentStatus,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -87,7 +95,7 @@ pub struct AgentStatusReport {
 
 pub struct AgentsService {
     state: Arc<RwLock<AppState>>,
-    agents: Arc<RwLock<HashMap<AgentType, AgentDefinition>>>,
+    agents: Arc<RwLock<HashMap<String, AgentDefinition>>>,
     sessions: Arc<RwLock<HashMap<String, AgentSession>>>,
 }
 
@@ -101,12 +109,31 @@ impl AgentsService {
         }
     }
 
-    fn load_builtin_agents() -> HashMap<AgentType, AgentDefinition> {
+    fn load_builtin_agents() -> HashMap<String, AgentDefinition> {
         let mut agents = HashMap::new();
 
+        // Orchestrator Agent - the main routing agent
         agents.insert(
-            AgentType::ClaudeCodeGuide,
+            "builtin-orchestrator".to_string(),
             AgentDefinition {
+                agent_id: "builtin-orchestrator".to_string(),
+                agent_type: AgentType::Orchestrator,
+                name: "Orchestrator".to_string(),
+                description: "智能调度中心，自动分析用户意图并委托给最合适的子 Agent 执行任务".to_string(),
+                when_to_use: "Default entry point. Automatically analyzes user intent and delegates to the best sub-agent.".to_string(),
+                tools: vec!["delegate_to_agent".to_string(), "list_available_agents".to_string()],
+                model: "sonnet".to_string(),
+                system_prompt: String::new(), // Dynamic prompt built at runtime by OrchestratorService
+                source: "built-in".to_string(),
+                base_dir: "built-in".to_string(),
+                is_orchestrator: true,
+            },
+        );
+
+        agents.insert(
+            "builtin-claude-code-guide".to_string(),
+            AgentDefinition {
+                agent_id: "builtin-claude-code-guide".to_string(),
                 agent_type: AgentType::ClaudeCodeGuide,
                 name: "Claude Code Guide".to_string(),
                 description: "Guides users through Claude Code features and best practices".to_string(),
@@ -124,12 +151,14 @@ Key responsibilities:
 Be concise, helpful, and focus on practical guidance."#.to_string(),
                 source: "built-in".to_string(),
                 base_dir: "built-in".to_string(),
+                is_orchestrator: false,
             },
         );
 
         agents.insert(
-            AgentType::Explore,
+            "builtin-explore".to_string(),
             AgentDefinition {
+                agent_id: "builtin-explore".to_string(),
                 agent_type: AgentType::Explore,
                 name: "Explore Agent".to_string(),
                 description: "Explores and analyzes codebases to understand structure and patterns".to_string(),
@@ -147,12 +176,14 @@ Key responsibilities:
 Be thorough but efficient. Focus on providing useful insights about the codebase."#.to_string(),
                 source: "built-in".to_string(),
                 base_dir: "built-in".to_string(),
+                is_orchestrator: false,
             },
         );
 
         agents.insert(
-            AgentType::GeneralPurpose,
+            "builtin-general-purpose".to_string(),
             AgentDefinition {
+                agent_id: "builtin-general-purpose".to_string(),
                 agent_type: AgentType::GeneralPurpose,
                 name: "General Purpose Agent".to_string(),
                 description: "Handles general tasks and questions".to_string(),
@@ -170,12 +201,14 @@ Key responsibilities:
 Be flexible and adaptive to different types of requests."#.to_string(),
                 source: "built-in".to_string(),
                 base_dir: "built-in".to_string(),
+                is_orchestrator: false,
             },
         );
 
         agents.insert(
-            AgentType::Plan,
+            "builtin-plan".to_string(),
             AgentDefinition {
+                agent_id: "builtin-plan".to_string(),
                 agent_type: AgentType::Plan,
                 name: "Plan Agent".to_string(),
                 description: "Creates detailed plans and breaks down complex tasks".to_string(),
@@ -193,12 +226,14 @@ Key responsibilities:
 Be thorough and structured. Focus on creating clear, executable plans."#.to_string(),
                 source: "built-in".to_string(),
                 base_dir: "built-in".to_string(),
+                is_orchestrator: false,
             },
         );
 
         agents.insert(
-            AgentType::Verification,
+            "builtin-verification".to_string(),
             AgentDefinition {
+                agent_id: "builtin-verification".to_string(),
                 agent_type: AgentType::Verification,
                 name: "Verification Agent".to_string(),
                 description: "Verifies implementations and runs tests".to_string(),
@@ -216,32 +251,60 @@ Key responsibilities:
 Be thorough and systematic. Focus on finding and reporting issues."#.to_string(),
                 source: "built-in".to_string(),
                 base_dir: "built-in".to_string(),
+                is_orchestrator: false,
             },
         );
 
         agents
     }
 
+    // ===== Query Methods =====
+
     pub async fn list_agents(&self) -> Vec<AgentDefinition> {
         let agents = self.agents.read().await;
         agents.values().cloned().collect()
     }
 
-    pub async fn get_agent(&self, agent_type: &AgentType) -> Option<AgentDefinition> {
+    /// Get agent by agent_id (new primary lookup)
+    pub async fn get_agent_by_id(&self, agent_id: &str) -> Option<AgentDefinition> {
         let agents = self.agents.read().await;
-        agents.get(agent_type).cloned()
+        agents.get(agent_id).cloned()
     }
 
-    pub async fn run_agent(&self, agent_type: &AgentType, prompt: &str) -> anyhow::Result<AgentSession> {
+    /// Legacy: get agent by AgentType (maps to first matching agent_id)
+    pub async fn get_agent(&self, agent_type: &AgentType) -> Option<AgentDefinition> {
         let agents = self.agents.read().await;
-        let agent = agents
-            .get(agent_type)
+        agents.values().find(|a| &a.agent_type == agent_type).cloned()
+    }
+
+    /// List all agents except Orchestrator (for Orchestrator prompt building)
+    pub async fn list_non_orchestrator_agents(&self) -> Vec<AgentDefinition> {
+        let agents = self.agents.read().await;
+        agents
+            .values()
+            .filter(|a| a.agent_type != AgentType::Orchestrator)
+            .cloned()
+            .collect()
+    }
+
+    // ===== Agent Execution =====
+
+    pub async fn run_agent(&self, agent_type: &AgentType, prompt: &str) -> anyhow::Result<AgentSession> {
+        let agent = self.get_agent(agent_type).await
             .ok_or_else(|| anyhow::anyhow!("Agent not found: {:?}", agent_type))?;
+
+        self.run_agent_by_id(&agent.agent_id, prompt).await
+    }
+
+    pub async fn run_agent_by_id(&self, agent_id: &str, prompt: &str) -> anyhow::Result<AgentSession> {
+        let agent = self.get_agent_by_id(agent_id).await
+            .ok_or_else(|| anyhow::anyhow!("Agent not found: {}", agent_id))?;
 
         let session_id = uuid::Uuid::new_v4().to_string();
         let session = AgentSession {
             id: session_id.clone(),
-            agent_type: agent_type.clone(),
+            agent_type: agent.agent_type.clone(),
+            agent_id: agent.agent_id.clone(),
             status: AgentStatus::Running,
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -305,6 +368,8 @@ Be thorough and systematic. Focus on finding and reporting issues."#.to_string()
         Ok(String::new())
     }
 
+    // ===== Session Management =====
+
     pub async fn get_session(&self, session_id: &str) -> Option<AgentSession> {
         let sessions = self.sessions.read().await;
         sessions.get(session_id).cloned()
@@ -343,12 +408,71 @@ Be thorough and systematic. Focus on finding and reporting issues."#.to_string()
         }
     }
 
-    pub async fn register_custom_agent(&self, definition: AgentDefinition) -> anyhow::Result<()> {
+    // ===== Custom Agent CRUD =====
+
+    pub async fn register_custom_agent(&self, mut definition: AgentDefinition) -> anyhow::Result<()> {
+        // Generate agent_id if empty
+        if definition.agent_id.is_empty() {
+            definition.agent_id = format!("custom-{}", uuid::Uuid::new_v4());
+        }
+        definition.agent_type = AgentType::Custom;
+        definition.source = "custom".to_string();
+
+        let agent_id = definition.agent_id.clone();
         let mut agents = self.agents.write().await;
-        agents.insert(definition.agent_type.clone(), definition);
+        agents.insert(agent_id, definition);
         println!("✅ Custom agent registered");
         Ok(())
     }
+
+    pub async fn update_custom_agent(&self, agent_id: &str, mut definition: AgentDefinition) -> anyhow::Result<()> {
+        let mut agents = self.agents.write().await;
+        
+        if let Some(existing) = agents.get(agent_id) {
+            if existing.source == "built-in" {
+                return Err(anyhow::anyhow!("Cannot modify built-in agent: {}", agent_id));
+            }
+        } else {
+            return Err(anyhow::anyhow!("Agent not found: {}", agent_id));
+        }
+
+        definition.agent_id = agent_id.to_string();
+        definition.agent_type = AgentType::Custom;
+        agents.insert(agent_id.to_string(), definition);
+        println!("✅ Custom agent updated: {}", agent_id);
+        Ok(())
+    }
+
+    pub async fn delete_custom_agent(&self, agent_id: &str) -> anyhow::Result<()> {
+        let mut agents = self.agents.write().await;
+        
+        if let Some(existing) = agents.get(agent_id) {
+            if existing.source == "built-in" {
+                return Err(anyhow::anyhow!("Cannot delete built-in agent: {}", agent_id));
+            }
+        } else {
+            return Err(anyhow::anyhow!("Agent not found: {}", agent_id));
+        }
+
+        agents.remove(agent_id);
+        println!("🗑️ Custom agent deleted: {}", agent_id);
+        Ok(())
+    }
+
+    pub async fn save_agent_to_file(&self, agent_id: &str, dir: &PathBuf) -> anyhow::Result<()> {
+        let agents = self.agents.read().await;
+        let agent = agents.get(agent_id)
+            .ok_or_else(|| anyhow::anyhow!("Agent not found: {}", agent_id))?;
+
+        std::fs::create_dir_all(dir)?;
+        let path = dir.join(format!("{}.json", agent_id));
+        let content = serde_json::to_string_pretty(agent)?;
+        std::fs::write(&path, content)?;
+        println!("💾 Agent saved to: {:?}", path);
+        Ok(())
+    }
+
+    // ===== Loading from Directory =====
 
     pub async fn load_agents_from_dir(&self, dir: &PathBuf) -> anyhow::Result<()> {
         if !dir.exists() {
@@ -362,8 +486,16 @@ Be thorough and systematic. Focus on finding and reporting issues."#.to_string()
             let path = entry.path();
             if path.extension().map_or(false, |ext| ext == "json") {
                 if let Ok(content) = std::fs::read_to_string(&path) {
-                    if let Ok(agent) = serde_json::from_str::<AgentDefinition>(&content) {
-                        agents.insert(agent.agent_type.clone(), agent);
+                    if let Ok(mut agent) = serde_json::from_str::<AgentDefinition>(&content) {
+                        // Generate agent_id from filename if missing
+                        if agent.agent_id.is_empty() {
+                            agent.agent_id = path
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+                        }
+                        agents.insert(agent.agent_id.clone(), agent);
                     }
                 }
             }

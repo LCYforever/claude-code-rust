@@ -414,24 +414,26 @@ impl Cli {
         let state = Arc::new(RwLock::new(state));
         let service = crate::services::AgentsService::new(state);
         
-        let agent_type = match agent_type.to_lowercase().as_str() {
-            "guide" | "claude-code-guide" => crate::services::AgentType::ClaudeCodeGuide,
-            "explore" => crate::services::AgentType::Explore,
-            "plan" => crate::services::AgentType::Plan,
-            "verify" | "verification" => crate::services::AgentType::Verification,
-            "general" | "general-purpose" => crate::services::AgentType::GeneralPurpose,
+        // Map CLI agent type string to agent_id
+        let agent_id = match agent_type.to_lowercase().as_str() {
+            "guide" | "claude-code-guide" => "builtin-claude-code-guide",
+            "explore" => "builtin-explore",
+            "plan" => "builtin-plan",
+            "verify" | "verification" => "builtin-verification",
+            "general" | "general-purpose" => "builtin-general-purpose",
+            "orchestrator" | "auto" => "builtin-orchestrator",
             _ => {
                 println!("Unknown agent type: {}", agent_type);
-                println!("Available types: guide, explore, plan, verify, general");
+                println!("Available types: guide, explore, plan, verify, general, orchestrator");
                 return Ok(());
             }
         };
 
-        println!("🤖 Running {} agent...", agent_type);
+        println!("🤖 Running {} agent...", agent_id);
         println!("Prompt: {}", prompt);
         println!();
 
-        let session = service.run_agent(&agent_type, prompt).await?;
+        let session = service.run_agent_by_id(agent_id, prompt).await?;
         
         if let Some(result) = &session.result {
             println!("{}", result);

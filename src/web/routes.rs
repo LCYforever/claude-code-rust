@@ -10,6 +10,7 @@ use tower_http::services::ServeDir;
 
 use super::{
     handlers::*,
+    agent,
 };
 
 /// Create the application router
@@ -43,4 +44,45 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // Add middleware
         .layer(cors)
         .with_state(state)
+}
+
+/// Create the application router with Agent API
+pub fn create_router_with_agent(
+    marketplace_state: Arc<AppState>,
+    agent_state: agent::AgentWebState,
+) -> Router {
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    // Agent API sub-router
+    let agent_api = agent::agent_router().with_state(agent_state);
+
+    Router::new()
+        // HTML Pages
+        .route("/", get(index))
+        .route("/search", get(search_page))
+        .route("/plugin/:id", get(plugin_detail))
+        
+        // Plugin Marketplace API Routes
+        .route("/api/health", get(health_check))
+        .route("/api/stats", get(get_stats))
+        .route("/api/featured", get(get_featured))
+        .route("/api/plugins", get(search_plugins))
+        .route("/api/plugins/:id", get(get_plugin))
+        .route("/api/plugins/:id/reviews", get(get_plugin_reviews))
+        .route("/api/plugins/:id/install", post(install_plugin))
+        .route("/api/categories", get(get_categories))
+        .route("/api/tags", get(get_tags))
+        
+        // Nest Agent API under /api/agent
+        .nest("/api/agent", agent_api)
+        
+        // Static files
+        .nest_service("/static", ServeDir::new("static"))
+        
+        // Add middleware
+        .layer(cors)
+        .with_state(marketplace_state)
 }
