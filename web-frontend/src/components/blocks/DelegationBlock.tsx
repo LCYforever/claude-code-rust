@@ -29,15 +29,19 @@ const DelegationBlock: React.FC<DelegationBlockProps> = ({ targetAgentName, task
     <div className={`my-2 p-3 rounded-lg border ${config.bg} bg-bg-tertiary/30`}>
       <div className="flex items-center gap-2 mb-1">
         <Bot className={`w-4 h-4 ${config.color}`} />
-        <span className="text-sm font-medium text-text-primary">
-          正在委托给 <span className="text-primary-light">[{targetAgentName}]</span> 处理
-        </span>
+        {status !== 'completed' && (
+          <span className="text-sm font-medium text-text-primary">
+            正在委托给 <span className="text-primary-light">[{targetAgentName}]</span> 处理
+          </span>
+        )}
         <span className={`flex items-center gap-1 text-xs ${config.color}`}>
           {config.icon}
           {config.label}
         </span>
       </div>
-      <p className="text-xs text-text-muted ml-6">{task}</p>
+      {status !== 'completed' && (
+        <p className="text-xs text-text-muted ml-6">{task}</p>
+      )}
     </div>
   );
 };
