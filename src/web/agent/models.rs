@@ -463,3 +463,39 @@ pub struct NativeCallbackResponse {
     pub received: bool,
     pub callback_id: String,
 }
+
+// ===== API Key Config =====
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiKeyConfig {
+    pub id: String,
+    pub name: String,
+    pub api_key: String,
+    pub base_url: String,
+    pub default_model: String,
+    pub is_active: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateApiKeyRequest {
+    pub name: String,
+    pub api_key: String,
+    pub base_url: String,
+    pub default_model: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateApiKeyRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_active: Option<bool>,
+}

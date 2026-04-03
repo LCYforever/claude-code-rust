@@ -16,6 +16,13 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::state::AppState;
+use crate::web::agent::models::ApiKeyConfig;
+
+/// Get the default API keys storage file path: ~/.claude-code/api_keys.json
+fn default_api_keys_path() -> PathBuf {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    home.join(".claude-code").join("api_keys.json")
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum AgentType {
@@ -97,15 +104,24 @@ pub struct AgentsService {
     state: Arc<RwLock<AppState>>,
     agents: Arc<RwLock<HashMap<String, AgentDefinition>>>,
     sessions: Arc<RwLock<HashMap<String, AgentSession>>>,
+    api_keys: Arc<RwLock<HashMap<String, ApiKeyConfig>>>,
+    api_keys_path: PathBuf,
 }
 
 impl AgentsService {
     pub fn new(state: Arc<RwLock<AppState>>) -> Self {
         let agents = Self::load_builtin_agents();
+        let api_keys_path = default_api_keys_path();
+
+        // Load persisted API keys from file at startup
+        let api_keys = Self::load_api_keys_from_file(&api_keys_path);
+
         Self {
             state,
             agents: Arc::new(RwLock::new(agents)),
             sessions: Arc::new(RwLock::new(HashMap::new())),
+            api_keys: Arc::new(RwLock::new(api_keys)),
+            api_keys_path,
         }
     }
 
@@ -186,19 +202,29 @@ Be thorough but efficient. Focus on providing useful insights about the codebase
                 agent_id: "builtin-general-purpose".to_string(),
                 agent_type: AgentType::GeneralPurpose,
                 name: "General Purpose Agent".to_string(),
-                description: "Handles general tasks and questions".to_string(),
-                when_to_use: "For general tasks that don't fit other specialized agents".to_string(),
-                tools: vec!["file_read".to_string(), "file_write".to_string(), "file_edit".to_string(), "search".to_string(), "execute_command".to_string()],
+                description: "通用智能助手，支持联网搜索，处理各类问答、写作、翻译和知识查询".to_string(),
+                when_to_use: "For general tasks that don't fit other specialized agents, including questions requiring web search for latest information".to_string(),
+                tools: vec!["web_search".to_string(), "file_read".to_string(), "file_write".to_string(), "file_edit".to_string(), "search".to_string(), "execute_command".to_string()],
                 model: "sonnet".to_string(),
-                system_prompt: r#"You are a General Purpose agent. Your role is to handle a wide variety of tasks.
+                system_prompt: r#"你是一个通用智能助手，具有联网搜索能力。你可以帮助用户处理各种任务。
 
-Key responsibilities:
-1. Execute user requests efficiently
-2. Use appropriate tools for tasks
-3. Provide clear and helpful responses
-4. Handle edge cases gracefully
+## 核心能力
+1. **联网搜索**：当需要最新信息时，系统会自动搜索互联网并将结果提供给你
+2. **知识问答**：回答各领域的问题，结合已有知识和搜索结果
+3. **写作创作**：撰写文章、翻译、润色文字
+4. **数据分析**：分析数据、计算、总结
 
-Be flexible and adaptive to different types of requests."#.to_string(),
+## 回答规范
+- 始终使用中文回复
+- 使用 Markdown 格式让回复更清晰
+- 如果回答基于搜索结果，请自然地引用信息来源
+- 如果信息可能不够准确或时效性有限，请主动说明
+- 保持回复简洁、专业、有帮助
+
+## 搜索结果使用
+- 当系统提供了搜索结果时，优先使用搜索结果中的信息
+- 将搜索结果与你的知识结合，给出全面的回答
+- 适当标注信息来源（如提供了 URL）"#.to_string(),
                 source: "built-in".to_string(),
                 base_dir: "built-in".to_string(),
                 is_orchestrator: false,
@@ -502,6 +528,88 @@ Be thorough and systematic. Focus on finding and reporting issues."#.to_string()
         }
 
         println!("📂 Loaded agents from: {:?}", dir);
+        Ok(())
+    }
+
+    // ===== API Key Management (with file persistence) =====
+
+    /// Load API keys from JSON file on disk
+    fn load_api_keys_from_file(path: &PathBuf) -> HashMap<String, ApiKeyConfig> {
+        if !path.exists() {
+            return HashMap::new();
+        }
+
+        match std::fs::read_to_string(path) {
+            Ok(content) => {
+                match serde_json::from_str::<Vec<ApiKeyConfig>>(&content) {
+                    Ok(keys) => {
+                        let count = keys.len();
+                        let map: HashMap<String, ApiKeyConfig> = keys
+                            .into_iter()
+                            .map(|k| (k.id.clone(), k))
+                            .collect();
+                        println!("🔑 Loaded {} API key(s) from {:?}", count, path);
+                        map
+                    }
+                    Err(e) => {
+                        eprintln!("⚠️ Failed to parse API keys file {:?}: {}", path, e);
+                        HashMap::new()
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("⚠️ Failed to read API keys file {:?}: {}", path, e);
+                HashMap::new()
+            }
+        }
+    }
+
+    /// Persist all API keys to JSON file on disk
+    fn save_api_keys_to_file(keys: &HashMap<String, ApiKeyConfig>, path: &PathBuf) {
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                eprintln!("⚠️ Failed to create API keys directory {:?}: {}", parent, e);
+                return;
+            }
+        }
+
+        let keys_vec: Vec<&ApiKeyConfig> = keys.values().collect();
+        match serde_json::to_string_pretty(&keys_vec) {
+            Ok(content) => {
+                if let Err(e) = std::fs::write(path, content) {
+                    eprintln!("⚠️ Failed to write API keys file {:?}: {}", path, e);
+                } else {
+                    println!("💾 API keys persisted to {:?}", path);
+                }
+            }
+            Err(e) => {
+                eprintln!("⚠️ Failed to serialize API keys: {}", e);
+            }
+        }
+    }
+
+    pub async fn list_api_keys(&self) -> Vec<ApiKeyConfig> {
+        let keys = self.api_keys.read().await;
+        keys.values().cloned().collect()
+    }
+
+    pub async fn get_api_key(&self, id: &str) -> Option<ApiKeyConfig> {
+        let keys = self.api_keys.read().await;
+        keys.get(id).cloned()
+    }
+
+    pub async fn save_api_key(&self, config: ApiKeyConfig) {
+        let mut keys = self.api_keys.write().await;
+        keys.insert(config.id.clone(), config);
+        Self::save_api_keys_to_file(&keys, &self.api_keys_path);
+    }
+
+    pub async fn delete_api_key(&self, id: &str) -> anyhow::Result<()> {
+        let mut keys = self.api_keys.write().await;
+        keys.remove(id)
+            .ok_or_else(|| anyhow::anyhow!("API Key not found: {}", id))?;
+        Self::save_api_keys_to_file(&keys, &self.api_keys_path);
         Ok(())
     }
 }

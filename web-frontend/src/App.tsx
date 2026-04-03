@@ -3,13 +3,16 @@ import ChatPanel from './components/ChatPanel';
 import SessionSidebar from './components/SessionSidebar';
 import AgentSelector from './components/AgentSelector';
 import AgentManager from './components/AgentManager';
+import ApiKeyManager from './components/ApiKeyManager';
 import { useSessions } from './hooks/useSessions';
 import { useAgents } from './hooks/useAgents';
-import { Zap, Wifi, Settings } from 'lucide-react';
+import { useApiKeys } from './hooks/useApiKeys';
+import { Zap, Wifi, Settings, Key } from 'lucide-react';
 
 const App: React.FC = () => {
   const [currentAgentId, setCurrentAgentId] = useState('builtin-orchestrator');
   const [agentManagerOpen, setAgentManagerOpen] = useState(false);
+  const [apiKeyManagerOpen, setApiKeyManagerOpen] = useState(false);
 
   const {
     sessions,
@@ -25,6 +28,16 @@ const App: React.FC = () => {
     editAgent,
     removeAgent,
   } = useAgents();
+
+  const {
+    apiKeys,
+    loading: apiKeysLoading,
+    error: apiKeysError,
+    addApiKey,
+    editApiKey,
+    removeApiKey,
+    toggleActive,
+  } = useApiKeys();
 
   const handleNewChat = useCallback(async () => {
     await createNewSession(currentAgentId, '新对话');
@@ -71,6 +84,15 @@ const App: React.FC = () => {
             onSelect={setCurrentAgentId}
           />
 
+          {/* API Key Manager button */}
+          <button
+            onClick={() => setApiKeyManagerOpen(true)}
+            className="p-2 hover:bg-bg-tertiary rounded-lg transition-colors cursor-pointer"
+            title="API Key 管理"
+          >
+            <Key className="w-4 h-4 text-text-muted hover:text-text-primary" />
+          </button>
+
           {/* Agent Manager button */}
           <button
             onClick={() => setAgentManagerOpen(true)}
@@ -115,6 +137,19 @@ const App: React.FC = () => {
         onClose={() => setAgentManagerOpen(false)}
         onSave={handleSaveAgent}
         onDelete={handleDeleteAgent}
+      />
+
+      {/* API Key Manager Modal */}
+      <ApiKeyManager
+        isOpen={apiKeyManagerOpen}
+        onClose={() => setApiKeyManagerOpen(false)}
+        apiKeys={apiKeys}
+        onAdd={addApiKey}
+        onEdit={editApiKey}
+        onDelete={removeApiKey}
+        onToggleActive={toggleActive}
+        loading={apiKeysLoading}
+        error={apiKeysError}
       />
     </div>
   );

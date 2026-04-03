@@ -1,4 +1,4 @@
-import { ApiResult, AgentDefinition, Session } from '../types';
+import { ApiResult, AgentDefinition, Session, ApiKeyConfig } from '../types';
 
 const API_BASE = '/api/agent';
 
@@ -102,4 +102,43 @@ export async function sendNativeCallback(
       success,
     }),
   });
+}
+
+// ===== API Keys =====
+
+export async function listApiKeys() {
+  return fetchJson<ApiKeyConfig[]>(`${API_BASE}/api-keys`);
+}
+
+export async function getApiKey(id: string) {
+  return fetchJson<ApiKeyConfig>(`${API_BASE}/api-keys/${id}`);
+}
+
+export async function createApiKey(data: {
+  name: string;
+  api_key: string;
+  base_url: string;
+  default_model: string;
+}) {
+  return fetchJson<ApiKeyConfig>(`${API_BASE}/api-keys`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateApiKey(id: string, data: Partial<{
+  name: string;
+  api_key: string;
+  base_url: string;
+  default_model: string;
+  is_active: boolean;
+}>) {
+  return fetchJson<ApiKeyConfig>(`${API_BASE}/api-keys/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteApiKey(id: string) {
+  return fetchJson<string>(`${API_BASE}/api-keys/${id}`, { method: 'DELETE' });
 }

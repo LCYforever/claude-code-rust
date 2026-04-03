@@ -33,6 +33,12 @@ pub fn agent_router() -> Router<AgentWebState> {
         .route("/health", get(handlers::health_check))
         // Native callback
         .route("/native-callback", post(handlers::native_callback))
+        // API Keys
+        .route("/api-keys", get(handlers::list_api_keys))
+        .route("/api-keys/:id", get(handlers::get_api_key))
+        .route("/api-keys", post(handlers::create_api_key))
+        .route("/api-keys/:id", put(handlers::update_api_key))
+        .route("/api-keys/:id", delete(handlers::delete_api_key))
         // WebSocket (skeleton)
         .route("/ws", get(handlers::ws_handler))
 }

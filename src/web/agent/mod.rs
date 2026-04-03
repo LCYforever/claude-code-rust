@@ -11,6 +11,7 @@ pub mod router;
 pub mod sse;
 pub mod ws;
 pub mod orchestrator;
+pub mod web_search;
 
 pub use state::AgentWebState;
 pub use router::agent_router;
