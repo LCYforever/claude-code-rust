@@ -31,5 +31,9 @@ logs/
 # Test
 /coverage/
 
+# Node.js / Frontend
+node_modules/
+.vite/
+
 # Documentation
 /doc/
