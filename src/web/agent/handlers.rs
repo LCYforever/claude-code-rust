@@ -32,6 +32,10 @@ pub async fn chat_handler(
     let agent_id = req.agent_id.clone();
     let message = req.message.clone();
 
+    // Use session_id for multi-turn context; auto-generate if not provided
+    let session_id = req.session_id.clone()
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
     // Get target agent
     let agent = state.agents_service.get_agent_by_id(&agent_id).await
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -42,9 +46,29 @@ pub async fn chat_handler(
         keys.into_iter().find(|k| k.is_active)
     };
 
+    // Get or create full session context (ContextManager + HistorySnipManager)
+    let session_ctx = state.get_or_create_session_context(&session_id).await;
+    let context_mgr = session_ctx.context_mgr.clone();
+    let snip_mgr = session_ctx.snip_mgr.clone();
+    let compact_service = state.compact_service.clone();
+
+    // Add the current user message to the context window
+    context_mgr.add_user(&message).await;
+
+    let stats = context_mgr.stats().await;
+    println!(
+        "📊 Context[{}]: {} entries, {}/{} tokens ({:.1}% used)",
+        &session_id[..8.min(session_id.len())],
+        stats.total_entries, stats.total_tokens, stats.max_tokens,
+        stats.utilization * 100.0
+    );
+
     // Clone what we need for the async stream
     let api_client = state.api_client.clone();
     let agents_service = state.agents_service.clone();
+    let context_mgr_clone = context_mgr.clone();
+    let snip_mgr_clone = snip_mgr.clone();
+    let compact_service_clone = compact_service.clone();
 
     if agent.is_orchestrator {
         // === Orchestrator two-step routing ===
@@ -204,6 +228,7 @@ pub async fn chat_handler(
             };
 
             // Step 3: Stream the response using the target agent's system prompt (with search context if available)
+            // Build messages with full conversation history from ContextManager
             let final_system_prompt = if let Some(ref ctx) = search_context {
                 format!(
                     "{}\n\n{}\n\n注意：你拥有联网搜索能力。以上搜索结果来自实时互联网搜索。请结合搜索结果为用户提供最新、最准确的回答。",
@@ -214,10 +239,30 @@ pub async fn chat_handler(
                 target_agent.system_prompt.clone()
             };
 
-            let target_messages = vec![
+            // Build messages: system prompt + conversation history from ContextManager
+            let mut target_messages = vec![
                 crate::api::ChatMessage::system(final_system_prompt),
-                crate::api::ChatMessage::user(message.clone()),
             ];
+            // Get history entries, apply HistorySnip + CompactService, then convert to messages
+            let raw_entries = context_mgr_clone.get_entries().await;
+            let snipped_entries = snip_mgr_clone.snip_if_needed(&raw_entries).await;
+            let (compacted_entries, compact_result) = compact_service_clone.compact(&snipped_entries);
+            if compact_result.tokens_before != compact_result.tokens_after {
+                println!(
+                    "🗜️  Compact[Orchestrator]: {:?} applied, {} -> {} tokens ({:.0}% ratio)",
+                    compact_result.level_applied,
+                    compact_result.tokens_before, compact_result.tokens_after,
+                    compact_result.compression_ratio * 100.0
+                );
+            }
+            let history_messages: Vec<crate::api::ChatMessage> = compacted_entries.iter()
+                .map(|e| crate::api::ChatMessage {
+                    role: e.role.clone(),
+                    content: e.content.clone(),
+                    tool_calls: None,
+                })
+                .collect();
+            target_messages.extend(history_messages);
 
             let stream_result = if let Some(ref key_config) = active_key {
                 api_client.chat_stream_with_key(
@@ -235,6 +280,7 @@ pub async fn chat_handler(
                     use futures::StreamExt;
                     let mut byte_stream = response.bytes_stream();
                     let mut buffer = String::new();
+                    let mut full_response = String::new();
 
                     while let Some(chunk_result) = byte_stream.next().await {
                         match chunk_result {
@@ -254,6 +300,7 @@ pub async fn chat_handler(
                                     }
 
                                     if let Some(content) = sse_utils::parse_sse_line(&line) {
+                                        full_response.push_str(&content);
                                         let text_data = serde_json::json!({
                                             "content": content
                                         });
@@ -273,6 +320,12 @@ pub async fn chat_handler(
                                 break;
                             }
                         }
+                    }
+
+                    // Save assistant response to context window for multi-turn memory
+                    if !full_response.is_empty() {
+                        context_mgr_clone.add_assistant(&full_response).await;
+                        println!("💾 Saved assistant response to context ({} chars)", full_response.len());
                     }
 
                     // Send delegation result event
@@ -409,12 +462,32 @@ pub async fn chat_handler(
                 agent.system_prompt.clone()
             };
 
-            let messages = vec![
+            // Build messages: system prompt + conversation history from ContextManager
+            let mut messages = vec![
                 crate::api::ChatMessage::system(system_prompt),
-                crate::api::ChatMessage::user(message.clone()),
             ];
+            // Get history entries, apply HistorySnip + CompactService, then convert to messages
+            let raw_entries = context_mgr_clone.get_entries().await;
+            let snipped_entries = snip_mgr_clone.snip_if_needed(&raw_entries).await;
+            let (compacted_entries, compact_result) = compact_service_clone.compact(&snipped_entries);
+            if compact_result.tokens_before != compact_result.tokens_after {
+                println!(
+                    "🗜️  Compact[GP]: {:?} applied, {} -> {} tokens ({:.0}% ratio)",
+                    compact_result.level_applied,
+                    compact_result.tokens_before, compact_result.tokens_after,
+                    compact_result.compression_ratio * 100.0
+                );
+            }
+            let history_messages: Vec<crate::api::ChatMessage> = compacted_entries.iter()
+                .map(|e| crate::api::ChatMessage {
+                    role: e.role.clone(),
+                    content: e.content.clone(),
+                    tool_calls: None,
+                })
+                .collect();
+            messages.extend(history_messages);
 
-            // Call LLM stream
+            // Call LLM stream (General Purpose Agent)
             let stream_result = if let Some(ref key_config) = active_key {
                 api_client.chat_stream_with_key(
                     messages,
@@ -431,6 +504,7 @@ pub async fn chat_handler(
                     use futures::StreamExt;
                     let mut byte_stream = response.bytes_stream();
                     let mut buffer = String::new();
+                    let mut full_response = String::new();
 
                     while let Some(chunk_result) = byte_stream.next().await {
                         match chunk_result {
@@ -450,6 +524,7 @@ pub async fn chat_handler(
                                     }
 
                                     if let Some(content) = sse_utils::parse_sse_line(&line) {
+                                        full_response.push_str(&content);
                                         let text_data = serde_json::json!({
                                             "content": content
                                         });
@@ -469,6 +544,12 @@ pub async fn chat_handler(
                                 break;
                             }
                         }
+                    }
+
+                    // Save assistant response to context window for multi-turn memory
+                    if !full_response.is_empty() {
+                        context_mgr_clone.add_assistant(&full_response).await;
+                        println!("💾 Saved GP assistant response to context ({} chars)", full_response.len());
                     }
 
                     yield Ok(Event::default()
@@ -502,12 +583,32 @@ pub async fn chat_handler(
                 .event("agent_tag")
                 .data(serde_json::to_string(&tag_data).unwrap_or_default()));
 
-            let messages = vec![
+            // Build messages: system prompt + conversation history from ContextManager
+            let mut messages = vec![
                 crate::api::ChatMessage::system(agent.system_prompt.clone()),
-                crate::api::ChatMessage::user(message.clone()),
             ];
+            // Get history entries, apply HistorySnip + CompactService, then convert to messages
+            let raw_entries = context_mgr_clone.get_entries().await;
+            let snipped_entries = snip_mgr_clone.snip_if_needed(&raw_entries).await;
+            let (compacted_entries, compact_result) = compact_service_clone.compact(&snipped_entries);
+            if compact_result.tokens_before != compact_result.tokens_after {
+                println!(
+                    "🗜️  Compact[Direct]: {:?} applied, {} -> {} tokens ({:.0}% ratio)",
+                    compact_result.level_applied,
+                    compact_result.tokens_before, compact_result.tokens_after,
+                    compact_result.compression_ratio * 100.0
+                );
+            }
+            let history_messages: Vec<crate::api::ChatMessage> = compacted_entries.iter()
+                .map(|e| crate::api::ChatMessage {
+                    role: e.role.clone(),
+                    content: e.content.clone(),
+                    tool_calls: None,
+                })
+                .collect();
+            messages.extend(history_messages);
 
-            // Call LLM stream
+            // Call LLM stream (Direct Agent)
             let stream_result = if let Some(ref key_config) = active_key {
                 api_client.chat_stream_with_key(
                     messages,
@@ -524,6 +625,7 @@ pub async fn chat_handler(
                     use futures::StreamExt;
                     let mut byte_stream = response.bytes_stream();
                     let mut buffer = String::new();
+                    let mut full_response = String::new();
 
                     while let Some(chunk_result) = byte_stream.next().await {
                         match chunk_result {
@@ -543,6 +645,7 @@ pub async fn chat_handler(
                                     }
 
                                     if let Some(content) = sse_utils::parse_sse_line(&line) {
+                                        full_response.push_str(&content);
                                         let text_data = serde_json::json!({
                                             "content": content
                                         });
@@ -562,6 +665,12 @@ pub async fn chat_handler(
                                 break;
                             }
                         }
+                    }
+
+                    // Save assistant response to context window for multi-turn memory
+                    if !full_response.is_empty() {
+                        context_mgr_clone.add_assistant(&full_response).await;
+                        println!("💾 Saved direct agent response to context ({} chars)", full_response.len());
                     }
 
                     yield Ok(Event::default()

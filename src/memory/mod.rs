@@ -11,6 +11,7 @@ pub mod history;
 pub mod context;
 pub mod storage;
 pub mod consolidation;
+pub mod history_snip;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -24,6 +25,7 @@ pub use history::{HistoryManager, HistoryEntry, HistoryFilter};
 pub use context::{ContextManager, ContextWindow, ContextEntry};
 pub use storage::{Storage, StorageBackend};
 pub use consolidation::{ConsolidationEngine, ConsolidationConfig};
+pub use history_snip::{HistorySnipManager, HistorySnipConfig, SnipStrategy};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryEntry {

@@ -59,8 +59,35 @@ impl ContextEntry {
         self
     }
     
+    /// Estimate token count for a given text.
+    /// Uses a heuristic that handles both English (word-based) and CJK (character-based) text.
+    /// - For CJK characters: ~1 token per character
+    /// - For English words: ~1.33 tokens per word (4/3)
+    /// - Minimum: 1 token per non-empty text
     fn estimate_tokens(text: &str) -> usize {
-        text.split_whitespace().count() / 3 * 4
+        if text.is_empty() {
+            return 0;
+        }
+        let mut cjk_chars = 0usize;
+        let mut other_chars = 0usize;
+        for c in text.chars() {
+            if c >= '\u{4E00}' && c <= '\u{9FFF}'    // CJK Unified Ideographs
+                || c >= '\u{3400}' && c <= '\u{4DBF}' // CJK Extension A
+                || c >= '\u{3000}' && c <= '\u{303F}' // CJK Symbols
+                || c >= '\u{FF00}' && c <= '\u{FFEF}' // Fullwidth Forms
+                || c >= '\u{AC00}' && c <= '\u{D7AF}' // Korean Hangul
+                || c >= '\u{3040}' && c <= '\u{309F}' // Hiragana
+                || c >= '\u{30A0}' && c <= '\u{30FF}' // Katakana
+            {
+                cjk_chars += 1;
+            } else if !c.is_whitespace() {
+                other_chars += 1;
+            }
+        }
+        let word_count = text.split_whitespace().count();
+        // CJK: ~1 token per char; English: ~4/3 tokens per word
+        let estimated = cjk_chars + (word_count * 4 / 3).max(other_chars / 4);
+        estimated.max(1)
     }
 }
 

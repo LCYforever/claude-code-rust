@@ -19,6 +19,7 @@ pub mod team_memory_sync;
 pub mod plugin_marketplace;
 pub mod agents;
 pub mod stress_tests;
+pub mod compact;
 
 pub use auto_dream::{AutoDreamService, AutoDreamConfig, AutoDreamStatus};
 pub use voice::{VoiceService, VoiceConfig, VoiceBackend, VoiceStatus, RecordingState};

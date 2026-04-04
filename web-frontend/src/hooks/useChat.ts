@@ -3,12 +3,21 @@ import { Message, MessageBlock } from '../types';
 import { streamChat, SSECallbacks } from '../api/sse';
 import { sendNativeCallback } from '../api/client';
 
+// Generate a unique session ID for multi-turn conversation context
+function generateSessionId(): string {
+  return `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+}
+
 export function useChat(agentId: string = 'builtin-orchestrator') {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  // Persistent session ID for multi-turn conversation context management
+  const sessionIdRef = useRef<string>(generateSessionId());
 
   const sendMessage = useCallback(async (content: string, sessionId?: string) => {
+    // Use the provided sessionId or the persistent one for multi-turn context
+    const activeSessionId = sessionId || sessionIdRef.current;
     // Add user message
     const userMsg: Message = {
       id: `msg-${Date.now()}-user`,
@@ -103,7 +112,7 @@ export function useChat(agentId: string = 'builtin-orchestrator') {
             if (data.callback_id) {
               await sendNativeCallback(
                 data.callback_id as string,
-                sessionId || '',
+                activeSessionId,
                 result,
                 true,
               );
@@ -113,7 +122,7 @@ export function useChat(agentId: string = 'builtin-orchestrator') {
             if (data.callback_id) {
               await sendNativeCallback(
                 data.callback_id as string,
-                sessionId || '',
+                activeSessionId,
                 { error: String(err) },
                 false,
               );
@@ -167,11 +176,13 @@ export function useChat(agentId: string = 'builtin-orchestrator') {
       },
     };
 
-    await streamChat(content, agentId, sessionId, callbacks);
+    await streamChat(content, agentId, activeSessionId, callbacks);
   }, [agentId]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);
+    // Reset session ID to start a fresh conversation context
+    sessionIdRef.current = generateSessionId();
   }, []);
 
   return {
@@ -179,5 +190,7 @@ export function useChat(agentId: string = 'builtin-orchestrator') {
     isStreaming,
     sendMessage,
     clearMessages,
+    // Expose sessionId for external use if needed
+    sessionId: sessionIdRef.current,
   };
 }
